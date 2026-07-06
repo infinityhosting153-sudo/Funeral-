@@ -80,22 +80,43 @@ export function useFirebaseSession(): AuthState {
     }
 
     setLoading(true);
+    // Defensive timeout so UI never gets stuck in loading if network/auth callbacks stall.
+    const loadingTimeout = window.setTimeout(() => {
+      setLoading(false);
+    }, 10000);
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
 
       if (!currentUser) {
         setProfile(null);
+        setError(null);
         setLoading(false);
         return;
       }
 
-      const profileSnap = await getDoc(doc(db, 'profiles', currentUser.uid));
-      const profileData = profileSnap.exists() ? profileSnap.data() : undefined;
-      setProfile(mapProfile(currentUser.uid, currentUser.email ?? '', profileData));
-      setLoading(false);
+      try {
+        const profileSnap = await getDoc(doc(db, 'profiles', currentUser.uid));
+        const profileData = profileSnap.exists() ? profileSnap.data() : undefined;
+        setProfile(mapProfile(currentUser.uid, currentUser.email ?? '', profileData));
+        setError(null);
+      } catch (profileError) {
+        // Keep user signed in even if profile doc is temporarily inaccessible.
+        setProfile(mapProfile(currentUser.uid, currentUser.email ?? '', undefined));
+        setError(
+          profileError instanceof Error
+            ? profileError.message
+            : 'Could not load profile document. Using fallback profile.',
+        );
+      } finally {
+        setLoading(false);
+      }
     });
 
-    return unsubscribe;
+    return () => {
+      window.clearTimeout(loadingTimeout);
+      unsubscribe();
+    };
   }, [auth, db]);
 
   const actions = useMemo(
