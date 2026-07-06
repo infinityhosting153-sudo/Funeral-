@@ -128,16 +128,25 @@ export function useFirebaseSession(): AuthState {
         }
 
         setError(null);
+        const normalizedEmail = email.trim().toLowerCase();
+        const isDemoCredentials =
+          normalizedEmail === defaultClientCredentials.email &&
+          password === defaultClientCredentials.password;
 
         try {
-          await signInWithEmailAndPassword(auth, email, password);
+          const credential = await signInWithEmailAndPassword(auth, email, password);
+
+          // Portal requirement: allow the default Ava demo credentials into admin dashboard.
+          if (isDemoCredentials) {
+            await upsertProfile(
+              credential.user.uid,
+              defaultClientCredentials.fullName,
+              defaultClientCredentials.email,
+              'administrator',
+            );
+          }
         } catch (error) {
           const errorCode = getErrorCode(error);
-          const normalizedEmail = email.trim().toLowerCase();
-
-          const isDemoCredentials =
-            normalizedEmail === defaultClientCredentials.email &&
-            password === defaultClientCredentials.password;
 
           const isAdminCredentials =
             normalizedEmail === defaultAdminCredentials.email &&
@@ -159,7 +168,7 @@ export function useFirebaseSession(): AuthState {
               createdCredential.user.uid,
               defaultClientCredentials.fullName,
               defaultClientCredentials.email,
-              defaultClientCredentials.role,
+              'administrator',
             );
 
             return;

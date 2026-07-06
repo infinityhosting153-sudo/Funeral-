@@ -160,7 +160,7 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
         Demo admin credentials: admin@funeral.local / Admin123!
       </p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Demo client credentials: ava.johnson@example.com / Client123!
+        Portal demo credentials (admin-enabled): ava.johnson@example.com / Client123!
       </p>
     </div>
   );
