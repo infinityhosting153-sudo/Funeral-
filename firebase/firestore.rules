@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return signedIn() && profile().role == 'administrator';
+    }
+
+    function isAdminOrFinance() {
+      return signedIn() && (profile().role == 'administrator' || profile().role == 'financeOfficer');
+    }
+
+    function ownsClientRecord(resourceData) {
+      return signedIn() && request.auth.token.email == resourceData.email;
+    }
+
+    match /profiles/{uid} {
+      allow read, create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid == uid);
+    }
+
+    match /clients/{clientId} {
+      allow read: if isAdminOrFinance() || ownsClientRecord(resource.data);
+      allow create, update, delete: if isAdminOrFinance();
+    }
+
+    match /memberships/{membershipId} {
+      allow read: if isAdminOrFinance() || ownsClientRecord(get(/databases/$(database)/documents/clients/$(resource.data.clientId)).data);
+      allow create, update, delete: if isAdminOrFinance();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
