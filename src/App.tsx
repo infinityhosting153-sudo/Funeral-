@@ -6,6 +6,21 @@ import { useFirebaseSession, type AuthState } from './lib/firebaseAuth';
 
 const AdminDashboard = lazy(() => import('./admin/AdminDashboard').then((module) => ({ default: module.AdminDashboard })));
 
+const adminSectionRoutes = [
+  { path: '/admin', menu: 'dashboard' },
+  { path: '/admin/clients', menu: 'clients' },
+  { path: '/admin/plans', menu: 'plans' },
+  { path: '/admin/beneficiaries', menu: 'beneficiaries' },
+  { path: '/admin/claims', menu: 'claims' },
+  { path: '/admin/payments', menu: 'payments' },
+  { path: '/admin/outstanding', menu: 'outstanding' },
+  { path: '/admin/reports', menu: 'reports' },
+  { path: '/admin/communication', menu: 'communication' },
+  { path: '/admin/documents', menu: 'documents' },
+  { path: '/admin/settings', menu: 'settings' },
+  { path: '/admin/audit-logs', menu: 'auditLogs' },
+] as const;
+
 function dashboardPathForRole(role: Role) {
   if (role === 'administrator') {
     return '/admin';
@@ -199,16 +214,19 @@ function App() {
       <Route path="/" element={<HomePage session={session} />} />
       <Route path="/login" element={<AuthPage mode="login" session={session} />} />
       <Route path="/register" element={<AuthPage mode="register" session={session} />} />
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute session={session}>
-            <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading dashboard...</div>}>
-              <AdminDashboard session={session} />
-            </Suspense>
-          </ProtectedRoute>
-        }
-      />
+      {adminSectionRoutes.map((route) => (
+        <Route
+          key={route.path}
+          path={route.path}
+          element={
+            <ProtectedRoute session={session}>
+              <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading dashboard...</div>}>
+                <AdminDashboard session={session} initialMenu={route.menu} />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+      ))}
       <Route path="/finance" element={<Navigate to="/admin" replace />} />
       <Route path="/client" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<Navigate to="/" replace state={{ from: location.pathname }} />} />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   BarChart3,
@@ -44,6 +44,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
 import {
   createDocument,
@@ -79,6 +80,22 @@ const adminMenuItems = [
 ] as const;
 
 type MenuKey = (typeof adminMenuItems)[number]['key'] | 'clientProfile';
+type RoutedMenuKey = Exclude<MenuKey, 'clientProfile' | 'logout'>;
+
+const menuPathMap: Record<RoutedMenuKey, string> = {
+  dashboard: '/admin',
+  clients: '/admin/clients',
+  plans: '/admin/plans',
+  beneficiaries: '/admin/beneficiaries',
+  claims: '/admin/claims',
+  payments: '/admin/payments',
+  outstanding: '/admin/outstanding',
+  reports: '/admin/reports',
+  communication: '/admin/communication',
+  documents: '/admin/documents',
+  settings: '/admin/settings',
+  auditLogs: '/admin/audit-logs',
+};
 
 type CrudEntity = 'plan' | 'beneficiary' | 'claim';
 
@@ -258,8 +275,9 @@ function ThemeToggle() {
   );
 }
 
-export function AdminDashboard({ session }: { session: AuthState }) {
-  const [activeMenu, setActiveMenu] = useState<MenuKey>('dashboard');
+export function AdminDashboard({ session, initialMenu = 'dashboard' }: { session: AuthState; initialMenu?: RoutedMenuKey }) {
+  const navigate = useNavigate();
+  const [activeMenu, setActiveMenu] = useState<MenuKey>(initialMenu);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -279,6 +297,10 @@ export function AdminDashboard({ session }: { session: AuthState }) {
 
   const data = useAdminDataset();
   const paginatedClients = usePaginatedClients(clientFilters, 12);
+
+  useEffect(() => {
+    setActiveMenu(initialMenu);
+  }, [initialMenu]);
 
   const planForm = useForm<PlanInput>({
     resolver: zodResolver(planSchema),
@@ -602,6 +624,7 @@ export function AdminDashboard({ session }: { session: AuthState }) {
                       void onLogout();
                       return;
                     }
+                    navigate(menuPathMap[item.key]);
                     setActiveMenu(item.key);
                     setMobileDrawerOpen(false);
                   }}
@@ -699,6 +722,7 @@ export function AdminDashboard({ session }: { session: AuthState }) {
                             setMobileDrawerOpen(false);
                             return;
                           }
+                          navigate(menuPathMap[item.key]);
                           setActiveMenu(item.key);
                           setMobileDrawerOpen(false);
                         }}
