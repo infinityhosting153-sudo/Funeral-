@@ -158,20 +158,43 @@ export function useFirebaseSession(): AuthState {
             errorCode === 'auth/wrong-password';
 
           if (isDemoCredentials && isRecoverableCredentialError) {
-            const createdCredential = await createUserWithEmailAndPassword(
-              auth,
-              defaultClientCredentials.email,
-              defaultClientCredentials.password,
-            );
+            try {
+              const createdCredential = await createUserWithEmailAndPassword(
+                auth,
+                defaultClientCredentials.email,
+                defaultClientCredentials.password,
+              );
 
-            await upsertProfile(
-              createdCredential.user.uid,
-              defaultClientCredentials.fullName,
-              defaultClientCredentials.email,
-              'administrator',
-            );
+              await upsertProfile(
+                createdCredential.user.uid,
+                defaultClientCredentials.fullName,
+                defaultClientCredentials.email,
+                'administrator',
+              );
 
-            return;
+              return;
+            } catch (createError) {
+              const createErrorCode = getErrorCode(createError);
+
+              if (createErrorCode === 'auth/email-already-in-use') {
+                const signedInCredential = await signInWithEmailAndPassword(
+                  auth,
+                  defaultClientCredentials.email,
+                  defaultClientCredentials.password,
+                );
+
+                await upsertProfile(
+                  signedInCredential.user.uid,
+                  defaultClientCredentials.fullName,
+                  defaultClientCredentials.email,
+                  'administrator',
+                );
+
+                return;
+              }
+
+              throw createError;
+            }
           }
 
           if (isAdminCredentials && isRecoverableCredentialError) {
