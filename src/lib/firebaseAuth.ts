@@ -1,7 +1,7 @@
 import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
-import { defaultProfiles, type Role, type UserProfile } from './domain';
+import { defaultClientCredentials, defaultProfiles, type Role, type UserProfile } from './domain';
 import { getFirebaseAuth, getFirebaseDb } from './firebase';
 
 interface RegisterInput {
@@ -21,6 +21,7 @@ export interface AuthState {
   register: (input: RegisterInput) => Promise<void>;
   signOut: () => Promise<void>;
   seedProfiles: () => Promise<void>;
+  createDefaultClient: () => Promise<void>;
 }
 
 function mapProfile(uid: string, email: string, data: Record<string, unknown> | undefined): UserProfile {
@@ -34,6 +35,15 @@ function mapProfile(uid: string, email: string, data: Record<string, unknown> | 
   };
 }
 
+function getErrorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const value = (error as { code: unknown }).code;
+    return typeof value === 'string' ? value : '';
+  }
+
+  return '';
+}
+
 export function useFirebaseSession(): AuthState {
   const auth = getFirebaseAuth();
   const db = getFirebaseDb();
@@ -42,6 +52,24 @@ export function useFirebaseSession(): AuthState {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(configured);
   const [error, setError] = useState<string | null>(null);
+
+  const upsertProfile = async (uid: string, fullName: string, email: string, role: Role) => {
+    if (!db) {
+      return;
+    }
+
+    await setDoc(
+      doc(db, 'profiles', uid),
+      {
+        fullName,
+        email,
+        role,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  };
 
   useEffect(() => {
     if (!auth || !db) {
@@ -73,12 +101,44 @@ export function useFirebaseSession(): AuthState {
   const actions = useMemo(
     () => ({
       async signIn(email: string, password: string) {
-        if (!auth) {
+        if (!auth || !db) {
           throw new Error('Firebase Auth is not configured.');
         }
 
         setError(null);
-        await signInWithEmailAndPassword(auth, email, password);
+
+        try {
+          await signInWithEmailAndPassword(auth, email, password);
+        } catch (error) {
+          const errorCode = getErrorCode(error);
+          const isDemoCredentials =
+            email.trim().toLowerCase() === defaultClientCredentials.email &&
+            password === defaultClientCredentials.password;
+
+          if (
+            isDemoCredentials &&
+            (errorCode === 'auth/invalid-credential' ||
+              errorCode === 'auth/user-not-found' ||
+              errorCode === 'auth/wrong-password')
+          ) {
+            const createdCredential = await createUserWithEmailAndPassword(
+              auth,
+              defaultClientCredentials.email,
+              defaultClientCredentials.password,
+            );
+
+            await upsertProfile(
+              createdCredential.user.uid,
+              defaultClientCredentials.fullName,
+              defaultClientCredentials.email,
+              defaultClientCredentials.role,
+            );
+
+            return;
+          }
+
+          throw error;
+        }
       },
       async register(input: RegisterInput) {
         if (!auth || !db) {
@@ -88,13 +148,7 @@ export function useFirebaseSession(): AuthState {
         setError(null);
         const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
 
-        await setDoc(doc(db, 'profiles', credential.user.uid), {
-          fullName: input.fullName,
-          email: input.email,
-          role: input.role,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+        await upsertProfile(credential.user.uid, input.fullName, input.email, input.role);
       },
       async signOutCurrent() {
         if (!auth) {
@@ -123,8 +177,50 @@ export function useFirebaseSession(): AuthState {
           );
         }
       },
+      async createDefaultClient() {
+        if (!auth || !db) {
+          throw new Error('Firebase is not configured.');
+        }
+
+        setError(null);
+
+        try {
+          const credential = await createUserWithEmailAndPassword(
+            auth,
+            defaultClientCredentials.email,
+            defaultClientCredentials.password,
+          );
+
+          await upsertProfile(
+            credential.user.uid,
+            defaultClientCredentials.fullName,
+            defaultClientCredentials.email,
+            defaultClientCredentials.role,
+          );
+        } catch (error) {
+          const errorCode = getErrorCode(error);
+
+          if (errorCode === 'auth/email-already-in-use') {
+            await signInWithEmailAndPassword(auth, defaultClientCredentials.email, defaultClientCredentials.password);
+            const signedInUser = auth.currentUser;
+
+            if (signedInUser) {
+              await upsertProfile(
+                signedInUser.uid,
+                defaultClientCredentials.fullName,
+                defaultClientCredentials.email,
+                defaultClientCredentials.role,
+              );
+            }
+
+            return;
+          }
+
+          throw error;
+        }
+      },
     }),
-    [auth, db],
+    [auth, db, upsertProfile],
   );
 
   return {
@@ -137,5 +233,6 @@ export function useFirebaseSession(): AuthState {
     register: actions.register,
     signOut: actions.signOutCurrent,
     seedProfiles: actions.seedProfiles,
+    createDefaultClient: actions.createDefaultClient,
   };
 }

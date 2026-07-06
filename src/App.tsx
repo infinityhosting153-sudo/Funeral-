@@ -188,6 +188,7 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
   const navigate = useNavigate();
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [creatingDefaultClient, setCreatingDefaultClient] = useState(false);
 
   useEffect(() => {
     if (!session.configured || !session.profile) {
@@ -222,6 +223,20 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
       setFormError(error instanceof Error ? error.message : 'Authentication failed.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleCreateDefaultClient() {
+    setCreatingDefaultClient(true);
+    setFormError('');
+
+    try {
+      await session.createDefaultClient();
+      navigate('/client', { replace: true });
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to create the default client user.');
+    } finally {
+      setCreatingDefaultClient(false);
     }
   }
 
@@ -283,6 +298,21 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
             {submitting ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
+
+        <button
+          type="button"
+          className="secondary-button default-client-button"
+          onClick={() => void handleCreateDefaultClient()}
+          disabled={creatingDefaultClient || !session.configured}
+        >
+          {creatingDefaultClient ? 'Creating default client...' : 'Create default client user'}
+        </button>
+
+        {mode === 'login' ? (
+          <p className="demo-note">
+            Demo client: ava.johnson@example.com / Client123!
+          </p>
+        ) : null}
 
         <Link to="/" className="text-link">
           Back to home
