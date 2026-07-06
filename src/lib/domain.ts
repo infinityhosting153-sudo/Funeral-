@@ -31,6 +31,13 @@ export interface UserProfile {
   role: Role;
 }
 
+export const defaultClientCredentials = {
+  fullName: 'Ava Johnson',
+  email: 'ava.johnson@example.com',
+  password: 'Client123!',
+  role: 'client' as const,
+};
+
 export const defaultClients: ClientRecord[] = [
   {
     id: 'client-1',
@@ -94,8 +101,8 @@ export const defaultProfiles: UserProfile[] = [
   },
   {
     uid: 'client-seed',
-    email: 'ava.johnson@example.com',
-    fullName: 'Ava Johnson',
+    email: defaultClientCredentials.email,
+    fullName: defaultClientCredentials.fullName,
     role: 'client',
   },
 ];
