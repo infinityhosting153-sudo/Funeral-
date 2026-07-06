@@ -133,16 +133,22 @@ export function useFirebaseSession(): AuthState {
           await signInWithEmailAndPassword(auth, email, password);
         } catch (error) {
           const errorCode = getErrorCode(error);
+          const normalizedEmail = email.trim().toLowerCase();
+
           const isDemoCredentials =
-            email.trim().toLowerCase() === defaultClientCredentials.email &&
+            normalizedEmail === defaultClientCredentials.email &&
             password === defaultClientCredentials.password;
 
-          if (
-            isDemoCredentials &&
-            (errorCode === 'auth/invalid-credential' ||
-              errorCode === 'auth/user-not-found' ||
-              errorCode === 'auth/wrong-password')
-          ) {
+          const isAdminCredentials =
+            normalizedEmail === defaultAdminCredentials.email &&
+            password === defaultAdminCredentials.password;
+
+          const isRecoverableCredentialError =
+            errorCode === 'auth/invalid-credential' ||
+            errorCode === 'auth/user-not-found' ||
+            errorCode === 'auth/wrong-password';
+
+          if (isDemoCredentials && isRecoverableCredentialError) {
             const createdCredential = await createUserWithEmailAndPassword(
               auth,
               defaultClientCredentials.email,
@@ -155,6 +161,45 @@ export function useFirebaseSession(): AuthState {
               defaultClientCredentials.email,
               defaultClientCredentials.role,
             );
+
+            return;
+          }
+
+          if (isAdminCredentials && isRecoverableCredentialError) {
+            try {
+              const createdCredential = await createUserWithEmailAndPassword(
+                auth,
+                defaultAdminCredentials.email,
+                defaultAdminCredentials.password,
+              );
+
+              await upsertProfile(
+                createdCredential.user.uid,
+                defaultAdminCredentials.fullName,
+                defaultAdminCredentials.email,
+                defaultAdminCredentials.role,
+              );
+            } catch (createError) {
+              const createErrorCode = getErrorCode(createError);
+
+              if (createErrorCode === 'auth/email-already-in-use') {
+                await signInWithEmailAndPassword(auth, defaultAdminCredentials.email, defaultAdminCredentials.password);
+                const signedInUser = auth.currentUser;
+
+                if (signedInUser) {
+                  await upsertProfile(
+                    signedInUser.uid,
+                    defaultAdminCredentials.fullName,
+                    defaultAdminCredentials.email,
+                    defaultAdminCredentials.role,
+                  );
+                }
+
+                return;
+              }
+
+              throw createError;
+            }
 
             return;
           }
