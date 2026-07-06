@@ -146,12 +146,20 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
         <Link to="/" className="text-slate-500 hover:underline dark:text-slate-400">
           Back home
         </Link>
-        <button type="button" onClick={() => void session.createDefaultClient()} className="text-emerald-700 hover:underline dark:text-emerald-400">
-          Create default client
-        </button>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => void session.createDefaultAdmin()} className="text-blue-700 hover:underline dark:text-blue-400">
+            Create default admin
+          </button>
+          <button type="button" onClick={() => void session.createDefaultClient()} className="text-emerald-700 hover:underline dark:text-emerald-400">
+            Create default client
+          </button>
+        </div>
       </div>
 
       <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+        Demo admin credentials: admin@funeral.local / Admin123!
+      </p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         Demo client credentials: ava.johnson@example.com / Client123!
       </p>
     </div>

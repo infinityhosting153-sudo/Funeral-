@@ -38,6 +38,13 @@ export const defaultClientCredentials = {
   role: 'client' as const,
 };
 
+export const defaultAdminCredentials = {
+  fullName: 'System Administrator',
+  email: 'admin@funeral.local',
+  password: 'Admin123!',
+  role: 'administrator' as const,
+};
+
 export const defaultClients: ClientRecord[] = [
   {
     id: 'client-1',

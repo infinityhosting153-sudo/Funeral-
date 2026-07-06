@@ -1,7 +1,7 @@
 import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
-import { defaultClientCredentials, defaultProfiles, type Role, type UserProfile } from './domain';
+import { defaultAdminCredentials, defaultClientCredentials, defaultProfiles, type Role, type UserProfile } from './domain';
 import { getFirebaseAuth, getFirebaseDb } from './firebase';
 
 interface RegisterInput {
@@ -22,6 +22,7 @@ export interface AuthState {
   signOut: () => Promise<void>;
   seedProfiles: () => Promise<void>;
   createDefaultClient: () => Promise<void>;
+  createDefaultAdmin: () => Promise<void>;
 }
 
 function mapProfile(uid: string, email: string, data: Record<string, unknown> | undefined): UserProfile {
@@ -240,6 +241,48 @@ export function useFirebaseSession(): AuthState {
           throw error;
         }
       },
+      async createDefaultAdmin() {
+        if (!auth || !db) {
+          throw new Error('Firebase is not configured.');
+        }
+
+        setError(null);
+
+        try {
+          const credential = await createUserWithEmailAndPassword(
+            auth,
+            defaultAdminCredentials.email,
+            defaultAdminCredentials.password,
+          );
+
+          await upsertProfile(
+            credential.user.uid,
+            defaultAdminCredentials.fullName,
+            defaultAdminCredentials.email,
+            defaultAdminCredentials.role,
+          );
+        } catch (error) {
+          const errorCode = getErrorCode(error);
+
+          if (errorCode === 'auth/email-already-in-use') {
+            await signInWithEmailAndPassword(auth, defaultAdminCredentials.email, defaultAdminCredentials.password);
+            const signedInUser = auth.currentUser;
+
+            if (signedInUser) {
+              await upsertProfile(
+                signedInUser.uid,
+                defaultAdminCredentials.fullName,
+                defaultAdminCredentials.email,
+                defaultAdminCredentials.role,
+              );
+            }
+
+            return;
+          }
+
+          throw error;
+        }
+      },
     }),
     [auth, db, upsertProfile],
   );
@@ -255,5 +298,6 @@ export function useFirebaseSession(): AuthState {
     signOut: actions.signOutCurrent,
     seedProfiles: actions.seedProfiles,
     createDefaultClient: actions.createDefaultClient,
+    createDefaultAdmin: actions.createDefaultAdmin,
   };
 }
