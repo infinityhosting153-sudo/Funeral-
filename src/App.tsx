@@ -5,7 +5,9 @@ import { type Role } from './lib/domain';
 import { useFirebaseSession, type AuthState } from './lib/firebaseAuth';
 
 const preloadAdminDashboard = () => import('./admin/AdminDashboard');
+const preloadClientDashboard = () => import('./client/ClientDashboard');
 const AdminDashboard = lazy(() => preloadAdminDashboard().then((module) => ({ default: module.AdminDashboard })));
+const ClientDashboard = lazy(() => preloadClientDashboard().then((module) => ({ default: module.ClientDashboard })));
 
 const adminSectionRoutes = [
   { path: '/admin', menu: 'dashboard' },
@@ -64,6 +66,34 @@ function ProtectedRoute({ session, children }: { session: AuthState; children: R
   return <>{children}</>;
 }
 
+function ProtectedClientRoute({ session, children }: { session: AuthState; children: React.ReactNode }) {
+  if (!session.configured) {
+    return (
+      <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+        Firebase is not configured. Add your environment variables to enable the client dashboard.
+      </div>
+    );
+  }
+
+  if (session.loading) {
+    return (
+      <div className="p-8">
+        <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+      </div>
+    );
+  }
+
+  if (!session.user || !session.profile) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (session.profile.role === 'administrator') {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: AuthState }) {
   const navigate = useNavigate();
   const [error, setError] = useState('');
@@ -93,7 +123,6 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
           role: String(formData.get('role') || 'client') as Role,
         });
       }
-      navigate('/admin', { replace: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Authentication failed.');
     } finally {
@@ -103,7 +132,7 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
 
   return (
     <div className="mx-auto mt-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Administrator Portal</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Portal</p>
       <h1 className="mt-2 text-2xl font-semibold">{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
         {mode === 'login'
@@ -165,7 +194,7 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
         Demo admin credentials: admin@funeral.local / Admin123!
       </p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Portal demo credentials (admin-enabled): ava.johnson@example.com / Client123!
+        Demo client credentials: ava.johnson@example.com / Client123!
       </p>
     </div>
   );
@@ -224,6 +253,7 @@ function App() {
 
   useEffect(() => {
     void preloadAdminDashboard();
+    void preloadClientDashboard();
   }, []);
 
   return (
@@ -251,7 +281,22 @@ function App() {
         />
       ))}
       <Route path="/finance" element={<Navigate to="/admin" replace />} />
-      <Route path="/client" element={<Navigate to="/admin" replace />} />
+      <Route
+        path="/client"
+        element={
+          <ProtectedClientRoute session={session}>
+            <Suspense
+              fallback={
+                <div className="p-8">
+                  <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+                </div>
+              }
+            >
+              <ClientDashboard session={session} />
+            </Suspense>
+          </ProtectedClientRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace state={{ from: location.pathname }} />} />
     </Routes>
   );
