@@ -19,7 +19,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
 import { cn } from '../lib/cn';
-import { recordClientPayment, topUpClientWallet, uploadClientDocument, useClientDataset } from '../lib/clientData';
+import {
+  addClientBeneficiary,
+  recordClientPayment,
+  topUpClientWallet,
+  uploadClientDocument,
+  useClientDataset,
+} from '../lib/clientData';
 
 type ClientMenuKey =
   | 'dashboard'
@@ -100,6 +106,15 @@ export function ClientDashboard({
   const [activeMenu, setActiveMenu] = useState<ClientMenuKey>(initialMenu);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [topUpAmount, setTopUpAmount] = useState(0);
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [beneficiaryRelationship, setBeneficiaryRelationship] = useState('');
+  const [beneficiaryGender, setBeneficiaryGender] = useState('Female');
+  const [beneficiaryAge, setBeneficiaryAge] = useState(0);
+  const [beneficiaryIdNumber, setBeneficiaryIdNumber] = useState('');
+  const [beneficiaryPhoneNumber, setBeneficiaryPhoneNumber] = useState('');
+  const [beneficiaryAddress, setBeneficiaryAddress] = useState('');
+  const [beneficiaryDateOfBirth, setBeneficiaryDateOfBirth] = useState('');
+  const [beneficiaryDocs, setBeneficiaryDocs] = useState<File[]>([]);
   const [uploadName, setUploadName] = useState('');
   const [uploadType, setUploadType] = useState('identity');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -233,6 +248,135 @@ export function ClientDashboard({
           {activeMenu === 'beneficiaries' ? (
             <Card title="Beneficiaries">
               <div className="mb-2 text-sm">Total beneficiaries: {data.beneficiaries.length}</div>
+
+              <div className="mb-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <p className="text-sm font-medium">Add Beneficiary + Upload Necessary Documents</p>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <input
+                    value={beneficiaryName}
+                    onChange={(event) => setBeneficiaryName(event.target.value)}
+                    placeholder="Full name"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    value={beneficiaryRelationship}
+                    onChange={(event) => setBeneficiaryRelationship(event.target.value)}
+                    placeholder="Relationship"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    value={beneficiaryIdNumber}
+                    onChange={(event) => setBeneficiaryIdNumber(event.target.value)}
+                    placeholder="ID Number"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    value={beneficiaryPhoneNumber}
+                    onChange={(event) => setBeneficiaryPhoneNumber(event.target.value)}
+                    placeholder="Phone Number"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <select
+                    value={beneficiaryGender}
+                    onChange={(event) => setBeneficiaryGender(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    value={beneficiaryAge}
+                    onChange={(event) => setBeneficiaryAge(Number(event.target.value || 0))}
+                    placeholder="Age"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    type="date"
+                    value={beneficiaryDateOfBirth}
+                    onChange={(event) => setBeneficiaryDateOfBirth(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    value={beneficiaryAddress}
+                    onChange={(event) => setBeneficiaryAddress(event.target.value)}
+                    placeholder="Physical Address"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </div>
+
+                <input
+                  type="file"
+                  multiple
+                  onChange={(event) => setBeneficiaryDocs(Array.from(event.target.files ?? []))}
+                  className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                />
+
+                <button
+                  type="button"
+                  disabled={
+                    !data.client ||
+                    !beneficiaryName.trim() ||
+                    !beneficiaryRelationship.trim() ||
+                    !beneficiaryIdNumber.trim() ||
+                    !beneficiaryPhoneNumber.trim()
+                  }
+                  onClick={() => {
+                    if (!data.client) {
+                      return;
+                    }
+                    const clientId = data.client.id;
+
+                    void addClientBeneficiary({
+                      clientId,
+                      fullName: beneficiaryName,
+                      relationship: beneficiaryRelationship,
+                      gender: beneficiaryGender,
+                      age: beneficiaryAge,
+                      idNumber: beneficiaryIdNumber,
+                      phoneNumber: beneficiaryPhoneNumber,
+                      address: beneficiaryAddress,
+                      dateOfBirth: beneficiaryDateOfBirth,
+                    })
+                      .then(async (beneficiaryId) => {
+                        for (const file of beneficiaryDocs) {
+                          await uploadClientDocument({
+                            clientId,
+                            beneficiaryId,
+                            name: `${beneficiaryName} - ${file.name}`,
+                            type: 'beneficiary-document',
+                            fileName: file.name,
+                            fileSize: file.size,
+                          });
+                        }
+
+                        await Promise.all([
+                          queryClient.invalidateQueries({ queryKey: ['client-dashboard-beneficiaries', clientId] }),
+                          queryClient.invalidateQueries({ queryKey: ['client-dashboard-documents', clientId] }),
+                        ]);
+
+                        setBeneficiaryName('');
+                        setBeneficiaryRelationship('');
+                        setBeneficiaryGender('Female');
+                        setBeneficiaryAge(0);
+                        setBeneficiaryIdNumber('');
+                        setBeneficiaryPhoneNumber('');
+                        setBeneficiaryAddress('');
+                        setBeneficiaryDateOfBirth('');
+                        setBeneficiaryDocs([]);
+
+                        toast.success('Beneficiary and required documents added');
+                      })
+                      .catch((error) => toast.error(error instanceof Error ? error.message : 'Could not add beneficiary'));
+                  }}
+                  className="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                >
+                  Add Beneficiary
+                </button>
+              </div>
+
               <Table
                 headers={['Date Registered', 'Name', 'ID Number', 'Physical Address', 'Covered For']}
                 rows={data.beneficiaries.map((b) => [

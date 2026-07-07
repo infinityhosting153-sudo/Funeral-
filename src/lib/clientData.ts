@@ -297,6 +297,7 @@ export async function uploadClientDocument(input: {
   type: string;
   fileName: string;
   fileSize: number;
+  beneficiaryId?: string;
 }) {
   const db = getFirebaseDb();
   if (!db) {
@@ -305,6 +306,7 @@ export async function uploadClientDocument(input: {
 
   await addDoc(collection(db, 'documents'), {
     clientId: input.clientId,
+    beneficiaryId: input.beneficiaryId ?? null,
     name: input.name,
     type: input.type,
     url: `uploaded://${input.fileName}`,
@@ -313,4 +315,39 @@ export async function uploadClientDocument(input: {
     createdAtServer: serverTimestamp(),
     updatedAtServer: serverTimestamp(),
   });
+}
+
+export async function addClientBeneficiary(input: {
+  clientId: string;
+  fullName: string;
+  relationship: string;
+  gender: string;
+  age: number;
+  idNumber: string;
+  phoneNumber: string;
+  address?: string;
+  dateOfBirth?: string;
+}) {
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error('Firebase is not configured.');
+  }
+
+  const reference = await addDoc(collection(db, 'beneficiaries'), {
+    clientId: input.clientId,
+    fullName: input.fullName,
+    relationship: input.relationship,
+    gender: input.gender,
+    age: input.age,
+    idNumber: input.idNumber,
+    phoneNumber: input.phoneNumber,
+    status: 'alive',
+    dateAdded: new Date().toISOString(),
+    dateOfBirth: input.dateOfBirth ?? '',
+    address: input.address ?? '',
+    createdAtServer: serverTimestamp(),
+    updatedAtServer: serverTimestamp(),
+  });
+
+  return reference.id;
 }
