@@ -448,6 +448,40 @@ export async function addClientBeneficiary(input: {
   };
 }
 
+export async function submitClientClaim(input: {
+  clientId: string;
+  beneficiaryId: string;
+  claimDate: string;
+  claimAmount: number;
+  claimDocuments: Array<{ name: string; fileName: string; fileSize: number }>;
+  claimNumber?: string;
+}) {
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error('Firebase is not configured.');
+  }
+
+  const claimNumber = input.claimNumber?.trim()
+    ? input.claimNumber.trim()
+    : `CLM-${new Date().getFullYear()}-${Math.floor(Math.random() * 900000 + 100000)}`;
+
+  await addDoc(collection(db, 'claims'), {
+    clientId: input.clientId,
+    beneficiaryId: input.beneficiaryId,
+    claimDate: input.claimDate,
+    claimNumber,
+    claimStatus: 'pending',
+    claimAmount: input.claimAmount,
+    approvedAmount: 0,
+    claimDocuments: input.claimDocuments.map((document) => `${document.name} (${document.fileName}, ${document.fileSize} bytes)`),
+    adminNotes: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdAtServer: serverTimestamp(),
+    updatedAtServer: serverTimestamp(),
+  });
+}
+
 export async function deleteClientDocument(documentId: string) {
   const db = getFirebaseDb();
   if (!db) {

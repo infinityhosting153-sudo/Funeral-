@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Bell,
   CreditCard,
@@ -16,12 +16,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
 import { cn } from '../lib/cn';
 import {
   addClientBeneficiary,
   deleteClientDocument,
+  submitClientClaim,
   recordClientPayment,
   topUpClientWallet,
   uploadClientDocument,
@@ -40,6 +41,8 @@ type ClientMenuKey =
   | 'settings'
   | 'auditLogs';
 
+type ClientActionKey = 'beneficiaryNew' | 'paymentTopUp' | 'paymentPay' | 'documentUpload';
+
 const clientMenuPathMap: Record<ClientMenuKey, string> = {
   dashboard: '/client',
   clients: '/client/clients',
@@ -52,6 +55,30 @@ const clientMenuPathMap: Record<ClientMenuKey, string> = {
   settings: '/client/settings',
   auditLogs: '/client/audit-logs',
 };
+
+const clientPathMenuMap = Object.fromEntries(
+  Object.entries(clientMenuPathMap).map(([menuKey, path]) => [path, menuKey]),
+) as Record<string, ClientMenuKey>;
+
+const clientActionPathMap: Record<ClientActionKey, string> = {
+  beneficiaryNew: '/client/beneficiaries/new',
+  paymentTopUp: '/client/payments/top-up',
+  paymentPay: '/client/payments/pay',
+  documentUpload: '/client/documents/upload',
+};
+
+const clientPathActionMap = Object.fromEntries(
+  Object.entries(clientActionPathMap).map(([actionKey, path]) => [path, actionKey]),
+) as Record<string, ClientActionKey>;
+
+const quickActions = [
+  { label: 'Add Beneficiary', to: '/client/beneficiaries/new', icon: UserRound },
+  { label: 'Top Up eWallet', to: '/client/payments/top-up', icon: CreditCard },
+  { label: 'Pay Month', to: '/client/payments/pay', icon: CreditCard },
+  { label: 'Upload Document', to: '/client/documents/upload', icon: Upload },
+  { label: 'Review Claims', to: '/client/claims', icon: Shield },
+  { label: 'View Plans', to: '/client/plans', icon: FileText },
+] as const;
 
 const menu: Array<{ key: ClientMenuKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -99,11 +126,11 @@ export function ClientDashboard({
   session: AuthState;
   initialMenu?: ClientMenuKey;
 }) {
-  const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
-  const [activeMenu, setActiveMenu] = useState<ClientMenuKey>(initialMenu);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [topUpAmount, setTopUpAmount] = useState(0);
+  const [topUpMethod, setTopUpMethod] = useState('card');
   const [beneficiaryName, setBeneficiaryName] = useState('');
   const [beneficiaryRelationship, setBeneficiaryRelationship] = useState('');
   const [beneficiaryGender, setBeneficiaryGender] = useState('Female');
@@ -114,13 +141,22 @@ export function ClientDashboard({
   const [beneficiaryDateOfBirth, setBeneficiaryDateOfBirth] = useState('');
   const [beneficiaryDocs, setBeneficiaryDocs] = useState<File[]>([]);
   const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState('all');
+  const [claimBeneficiaryId, setClaimBeneficiaryId] = useState('');
+  const [claimDate, setClaimDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [claimNumber, setClaimNumber] = useState('');
+  const [claimAmount, setClaimAmount] = useState(0);
+  const [claimFiles, setClaimFiles] = useState<File[]>([]);
   const [uploadName, setUploadName] = useState('');
   const [uploadType, setUploadType] = useState('identity');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
-  useEffect(() => {
-    setActiveMenu(initialMenu);
-  }, [initialMenu]);
+  const activeMenu = useMemo(() => {
+    return clientPathMenuMap[location.pathname] ?? initialMenu;
+  }, [initialMenu, location.pathname]);
+
+  const activeAction = useMemo(() => {
+    return clientPathActionMap[location.pathname] ?? null;
+  }, [location.pathname]);
 
   const data = useClientDataset(session.profile?.email ?? '');
 
@@ -164,6 +200,337 @@ export function ClientDashboard({
     });
   }, [data.documents, selectedBeneficiaryId]);
 
+  async function submitBeneficiary() {
+    if (!data.client) {
+      return;
+    }
+
+    const clientId = data.client.id;
+
+    const created = await addClientBeneficiary({
+      clientId,
+      fullName: beneficiaryName,
+      relationship: beneficiaryRelationship,
+      gender: beneficiaryGender,
+      age: beneficiaryAge,
+      idNumber: beneficiaryIdNumber,
+      phoneNumber: beneficiaryPhoneNumber,
+      address: beneficiaryAddress,
+      dateOfBirth: beneficiaryDateOfBirth,
+    });
+
+    for (const file of beneficiaryDocs) {
+      await uploadClientDocument({
+        clientId,
+        beneficiaryId: created.id,
+        name: `${beneficiaryName} - ${file.name}`,
+        type: 'beneficiary-document',
+        fileName: file.name,
+        fileSize: file.size,
+      });
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['client-dashboard-beneficiaries', clientId] }),
+      queryClient.invalidateQueries({ queryKey: ['client-dashboard-documents', clientId] }),
+    ]);
+
+    setBeneficiaryName('');
+    setBeneficiaryRelationship('');
+    setBeneficiaryGender('Female');
+    setBeneficiaryAge(0);
+    setBeneficiaryIdNumber('');
+    setBeneficiaryPhoneNumber('');
+    setBeneficiaryAddress('');
+    setBeneficiaryDateOfBirth('');
+    setBeneficiaryDocs([]);
+
+    toast.success(`Beneficiary added with member number ${created.membershipNumber}`);
+  }
+
+  async function submitTopUp() {
+    if (!data.client || topUpAmount <= 0) {
+      return;
+    }
+
+    const clientId = data.client.id;
+    await topUpClientWallet({
+      clientId,
+      amount: topUpAmount,
+      method: topUpMethod,
+    });
+
+    setTopUpAmount(0);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet', clientId] }),
+      queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet-transactions', clientId] }),
+    ]);
+
+    toast.success('eWallet top-up completed');
+  }
+
+  async function submitPayment() {
+    if (!data.client || !selectedMonth) {
+      return;
+    }
+
+    const clientId = data.client.id;
+    await recordClientPayment({
+      clientId,
+      month: selectedMonth,
+      amount: data.client?.monthlyPremium ?? 0,
+      paymentMethod: 'self-service',
+    });
+
+    toast.success(`Payment captured for ${selectedMonth}`);
+  }
+
+  async function submitUpload() {
+    if (!data.client || !uploadFile) {
+      return;
+    }
+
+    const clientId = data.client.id;
+    await uploadClientDocument({
+      clientId,
+      name: uploadName,
+      type: uploadType,
+      fileName: uploadFile.name,
+      fileSize: uploadFile.size,
+    });
+
+    await queryClient.invalidateQueries({ queryKey: ['client-dashboard-documents', clientId] });
+    toast.success('Document uploaded');
+    setUploadName('');
+    setUploadFile(null);
+  }
+
+  async function submitClaim() {
+    if (!data.client || !claimBeneficiaryId || claimAmount <= 0) {
+      return;
+    }
+
+    const clientId = data.client.id;
+    await submitClientClaim({
+      clientId,
+      beneficiaryId: claimBeneficiaryId,
+      claimDate,
+      claimAmount,
+      claimNumber,
+      claimDocuments: claimFiles.map((file) => ({
+        name: file.name,
+        fileName: file.name,
+        fileSize: file.size,
+      })),
+    });
+
+    await queryClient.invalidateQueries({ queryKey: ['client-dashboard-claims', clientId] });
+    toast.success('Claim submitted for review');
+    setClaimBeneficiaryId('');
+    setClaimDate(new Date().toISOString().slice(0, 10));
+    setClaimNumber('');
+    setClaimAmount(0);
+    setClaimFiles([]);
+  }
+
+  function renderActionPage() {
+    if (activeAction === 'beneficiaryNew') {
+      return (
+        <Card title="Add Beneficiary">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Create a beneficiary record and attach documents from this dedicated page.
+            </p>
+            <Link
+              to="/client/beneficiaries"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Back to Beneficiaries
+            </Link>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <input value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder="Full name" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <input value={beneficiaryRelationship} onChange={(event) => setBeneficiaryRelationship(event.target.value)} placeholder="Relationship" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <input value={beneficiaryIdNumber} onChange={(event) => setBeneficiaryIdNumber(event.target.value)} placeholder="ID Number" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <input value={beneficiaryPhoneNumber} onChange={(event) => setBeneficiaryPhoneNumber(event.target.value)} placeholder="Phone Number" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <select value={beneficiaryGender} onChange={(event) => setBeneficiaryGender(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+              <option value="Female">Female</option>
+              <option value="Male">Male</option>
+              <option value="Other">Other</option>
+            </select>
+            <input type="number" min={0} value={beneficiaryAge} onChange={(event) => setBeneficiaryAge(Number(event.target.value || 0))} placeholder="Age" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <input type="date" value={beneficiaryDateOfBirth} onChange={(event) => setBeneficiaryDateOfBirth(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+            <input value={beneficiaryAddress} onChange={(event) => setBeneficiaryAddress(event.target.value)} placeholder="Physical Address" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+          </div>
+
+          <input
+            type="file"
+            multiple
+            onChange={(event) => setBeneficiaryDocs(Array.from(event.target.files ?? []))}
+            className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+          />
+
+          <button
+            type="button"
+            disabled={!data.client || !beneficiaryName.trim() || !beneficiaryRelationship.trim() || !beneficiaryIdNumber.trim() || !beneficiaryPhoneNumber.trim()}
+            onClick={() => {
+              void submitBeneficiary().catch((error) => toast.error(error instanceof Error ? error.message : 'Could not add beneficiary'));
+            }}
+            className="mt-4 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+          >
+            Save Beneficiary
+          </button>
+        </Card>
+      );
+    }
+
+    if (activeAction === 'paymentTopUp') {
+      return (
+        <Card title="Top Up eWallet">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Add funds to the account wallet from a dedicated page.
+            </p>
+            <Link
+              to="/client/payments"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Back to Payments
+            </Link>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <input
+              type="number"
+              min={0}
+              step={50}
+              value={topUpAmount}
+              onChange={(event) => setTopUpAmount(Number(event.target.value || 0))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+              placeholder="Top-up amount"
+            />
+            <select
+              value={topUpMethod}
+              onChange={(event) => setTopUpMethod(event.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            >
+              <option value="card">Card</option>
+              <option value="eft">EFT</option>
+              <option value="cash">Cash</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            disabled={!data.client || topUpAmount <= 0}
+            onClick={() => {
+              void submitTopUp().catch((error) => toast.error(error instanceof Error ? error.message : 'Top-up failed'));
+            }}
+            className="mt-4 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+          >
+            Top Up Wallet
+          </button>
+        </Card>
+      );
+    }
+
+    if (activeAction === 'paymentPay') {
+      return (
+        <Card title="Pay Month">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Capture a self-service payment for one unpaid month.
+            </p>
+            <Link
+              to="/client/payments"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Back to Payments
+            </Link>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value)}
+            >
+              {unpaidMonths.length === 0 ? <option value="">No unpaid months</option> : null}
+              {unpaidMonths.map((month) => (
+                <option key={month} value={month}>{month}</option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              disabled={!data.client || !selectedMonth || unpaidMonths.length === 0}
+              onClick={() => {
+                void submitPayment().catch((error) => toast.error(error instanceof Error ? error.message : 'Payment failed'));
+              }}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+            >
+              Capture Payment
+            </button>
+          </div>
+        </Card>
+      );
+    }
+
+    if (activeAction === 'documentUpload') {
+      return (
+        <Card title="Upload Document">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Upload a client document from a dedicated page.
+            </p>
+            <Link
+              to="/client/documents"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Back to Documents
+            </Link>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-3">
+            <input
+              value={uploadName}
+              onChange={(event) => setUploadName(event.target.value)}
+              placeholder="Document name"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+            <select
+              value={uploadType}
+              onChange={(event) => setUploadType(event.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            >
+              <option value="identity">Identity Document</option>
+              <option value="proof-of-residence">Proof of Residence</option>
+              <option value="claim-support">Claim Supporting Doc</option>
+            </select>
+            <input
+              type="file"
+              onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+          </div>
+
+          <button
+            type="button"
+            disabled={!data.client || !uploadName || !uploadFile}
+            onClick={() => {
+              void submitUpload().catch((error) => toast.error(error instanceof Error ? error.message : 'Upload failed'));
+            }}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+          >
+            <Upload className="h-4 w-4" /> Upload Document
+          </button>
+        </Card>
+      );
+    }
+
+    return null;
+  }
+
   if (session.profile?.role !== 'client' && session.profile?.role !== 'financeOfficer') {
     return (
       <div className="p-8 text-sm text-slate-600 dark:text-slate-300">
@@ -184,13 +551,9 @@ export function ClientDashboard({
             {menu.map((item) => {
               const Icon = item.icon;
               return (
-                <button
-                  type="button"
+                <Link
                   key={item.key}
-                  onClick={() => {
-                    setActiveMenu(item.key);
-                    navigate(clientMenuPathMap[item.key]);
-                  }}
+                  to={clientMenuPathMap[item.key]}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition',
                     activeMenu === item.key
@@ -200,7 +563,7 @@ export function ClientDashboard({
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
-                </button>
+                </Link>
               );
             })}
           </nav>
@@ -214,54 +577,91 @@ export function ClientDashboard({
         </aside>
 
         <section className="space-y-4">
-          {data.loading ? (
-            <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
-          ) : null}
-
-          {activeMenu === 'dashboard' ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Stat title="Beneficiaries" value={String(data.beneficiaries.length)} />
-              <Stat title="Claims" value={String(data.claims.length)} />
-              <Stat title="Paid Months" value={String(paidMonths.size)} />
-              <Stat title="eWallet Balance" value={toCurrency(data.walletBalance)} />
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-500">Client Portal</p>
+                <h1 className="text-xl font-semibold">{session.profile.fullName}</h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Quick access to the pages you use most often.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {quickActions.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <Link
+                      key={action.to}
+                      to={action.to}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      <Icon className="h-4 w-4" />
+                      {action.label}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          ) : null}
+          </div>
 
-          {activeMenu === 'clients' ? (
-            <Card title="Clients (main account holder)">
-              {data.client ? (
-                <div className="grid gap-2 text-sm md:grid-cols-2">
-                  <Item label="Name" value={data.client.fullName} />
-                  <Item label="Email" value={data.client.email} />
-                  <Item label="ID Number" value={data.client.idNumber} />
-                  <Item label="Phone" value={data.client.phoneNumber} />
-                  <Item label="Membership Number" value={data.client.membershipNumber} />
-                  <Item label="Policy Number" value={data.client.policyNumber || 'Generating...'} />
-                  <Item label="Status" value={data.client.status} />
+          {activeAction ? (
+            renderActionPage()
+          ) : (
+            <>
+              {data.loading ? (
+                <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+              ) : null}
+
+              {activeMenu === 'dashboard' ? (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <Stat title="Beneficiaries" value={String(data.beneficiaries.length)} />
+                  <Stat title="Claims" value={String(data.claims.length)} />
+                  <Stat title="Paid Months" value={String(paidMonths.size)} />
+                  <Stat title="eWallet Balance" value={toCurrency(data.walletBalance)} />
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">No client account record found for this login yet.</p>
-              )}
-            </Card>
-          ) : null}
+              ) : null}
 
-          {activeMenu === 'plans' ? (
-            <Card title="Funeral Plans">
-              {data.client ? (
-                <div className="space-y-2 text-sm">
-                  <Item label="Selected Plan" value={data.client.funeralPlan || 'Not assigned'} />
-                  <Item label="Monthly Premium" value={toCurrency(data.client.monthlyPremium)} />
-                  <Item label="Coverage" value={toCurrency(data.selectedPlan?.payoutAmount ?? 0)} />
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">Plan details unavailable.</p>
-              )}
-            </Card>
-          ) : null}
+              {activeMenu === 'clients' ? (
+                <Card title="Clients (main account holder)">
+                  {data.client ? (
+                    <div className="grid gap-2 text-sm md:grid-cols-2">
+                      <Item label="Name" value={data.client.fullName} />
+                      <Item label="Email" value={data.client.email} />
+                      <Item label="ID Number" value={data.client.idNumber} />
+                      <Item label="Phone" value={data.client.phoneNumber} />
+                      <Item label="Membership Number" value={data.client.membershipNumber} />
+                      <Item label="Policy Number" value={data.client.policyNumber || 'Generating...'} />
+                      <Item label="Status" value={data.client.status} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No client account record found for this login yet.</p>
+                  )}
+                </Card>
+              ) : null}
 
-          {activeMenu === 'beneficiaries' ? (
-            <Card title="Beneficiaries">
-              <div className="mb-2 text-sm">Total beneficiaries: {data.beneficiaries.length}</div>
+              {activeMenu === 'plans' ? (
+                <Card title="Funeral Plans">
+                  {data.client ? (
+                    <div className="space-y-2 text-sm">
+                      <Item label="Selected Plan" value={data.client.funeralPlan || 'Not assigned'} />
+                      <Item label="Monthly Premium" value={toCurrency(data.client.monthlyPremium)} />
+                      <Item label="Coverage" value={toCurrency(data.selectedPlan?.payoutAmount ?? 0)} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">Plan details unavailable.</p>
+                  )}
+                </Card>
+              ) : null}
+
+              {activeMenu === 'beneficiaries' ? (
+                <Card title="Beneficiaries">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span>Total beneficiaries: {data.beneficiaries.length}</span>
+                <Link
+                  to="/client/beneficiaries/new"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Open beneficiary page
+                </Link>
+              </div>
 
               <div className="mb-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <p className="text-sm font-medium">Add Beneficiary + Upload Necessary Documents</p>
@@ -328,67 +728,30 @@ export function ClientDashboard({
                   className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                 />
 
-                <button
-                  type="button"
-                  disabled={
+                <Link
+                  to="/client/beneficiaries/new"
+                  aria-disabled={
                     !data.client ||
                     !beneficiaryName.trim() ||
                     !beneficiaryRelationship.trim() ||
                     !beneficiaryIdNumber.trim() ||
                     !beneficiaryPhoneNumber.trim()
                   }
-                  onClick={() => {
-                    if (!data.client) {
-                      return;
+                  onClick={(event) => {
+                    if (
+                      !data.client ||
+                      !beneficiaryName.trim() ||
+                      !beneficiaryRelationship.trim() ||
+                      !beneficiaryIdNumber.trim() ||
+                      !beneficiaryPhoneNumber.trim()
+                    ) {
+                      event.preventDefault();
                     }
-                    const clientId = data.client.id;
-
-                    void addClientBeneficiary({
-                      clientId,
-                      fullName: beneficiaryName,
-                      relationship: beneficiaryRelationship,
-                      gender: beneficiaryGender,
-                      age: beneficiaryAge,
-                      idNumber: beneficiaryIdNumber,
-                      phoneNumber: beneficiaryPhoneNumber,
-                      address: beneficiaryAddress,
-                      dateOfBirth: beneficiaryDateOfBirth,
-                    })
-                      .then(async (created) => {
-                        for (const file of beneficiaryDocs) {
-                          await uploadClientDocument({
-                            clientId,
-                            beneficiaryId: created.id,
-                            name: `${beneficiaryName} - ${file.name}`,
-                            type: 'beneficiary-document',
-                            fileName: file.name,
-                            fileSize: file.size,
-                          });
-                        }
-
-                        await Promise.all([
-                          queryClient.invalidateQueries({ queryKey: ['client-dashboard-beneficiaries', clientId] }),
-                          queryClient.invalidateQueries({ queryKey: ['client-dashboard-documents', clientId] }),
-                        ]);
-
-                        setBeneficiaryName('');
-                        setBeneficiaryRelationship('');
-                        setBeneficiaryGender('Female');
-                        setBeneficiaryAge(0);
-                        setBeneficiaryIdNumber('');
-                        setBeneficiaryPhoneNumber('');
-                        setBeneficiaryAddress('');
-                        setBeneficiaryDateOfBirth('');
-                        setBeneficiaryDocs([]);
-
-                        toast.success(`Beneficiary added with member number ${created.membershipNumber}`);
-                      })
-                      .catch((error) => toast.error(error instanceof Error ? error.message : 'Could not add beneficiary'));
                   }}
-                  className="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                  className="mt-3 inline-flex rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:pointer-events-none disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
                 >
-                  Add Beneficiary
-                </button>
+                  Add Beneficiary on Dedicated Page
+                </Link>
               </div>
 
               <Table
@@ -495,9 +858,80 @@ export function ClientDashboard({
 
           {activeMenu === 'claims' ? (
             <Card title="Claims">
+              <div className="mb-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Submit a claim</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Upload supporting files and send the claim for review.
+                    </p>
+                  </div>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">Claims on file: {data.claims.length}</span>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <select
+                    value={claimBeneficiaryId}
+                    onChange={(event) => setClaimBeneficiaryId(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value="">Select beneficiary</option>
+                    {data.beneficiaries.map((beneficiary) => (
+                      <option key={beneficiary.id} value={beneficiary.id}>
+                        {beneficiary.fullName}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={claimDate}
+                    onChange={(event) => setClaimDate(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    value={claimNumber}
+                    onChange={(event) => setClaimNumber(event.target.value)}
+                    placeholder="Claim number (optional)"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={claimAmount}
+                    onChange={(event) => setClaimAmount(Number(event.target.value || 0))}
+                    placeholder="Claim amount"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </div>
+
+                <input
+                  type="file"
+                  multiple
+                  onChange={(event) => setClaimFiles(Array.from(event.target.files ?? []))}
+                  className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                />
+
+                {claimFiles.length > 0 ? (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Attached files: {claimFiles.map((file) => file.name).join(', ')}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  disabled={!data.client || !claimBeneficiaryId || claimAmount <= 0}
+                  onClick={() => {
+                    void submitClaim().catch((error) => toast.error(error instanceof Error ? error.message : 'Claim submission failed'));
+                  }}
+                  className="mt-4 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                >
+                  Submit Claim
+                </button>
+              </div>
+
               <div className="mb-2 text-sm">Number of claims: {data.claims.length}</div>
               <Table
-                headers={['Deceased Date', 'Name', 'Amount Claimed', 'Status']}
+                headers={['Claim Date', 'Beneficiary', 'Amount Claimed', 'Status']}
                 rows={data.claims.map((claim) => {
                   const beneficiary = data.beneficiaries.find((b) => b.id === claim.beneficiaryId);
                   return [
@@ -519,6 +953,21 @@ export function ClientDashboard({
                 <Item label="eWallet Balance" value={toCurrency(data.walletBalance)} />
               </div>
 
+              <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                <Link
+                  to="/client/payments/top-up"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Open top-up page
+                </Link>
+                <Link
+                  to="/client/payments/pay"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Open payment page
+                </Link>
+              </div>
+
               <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <p className="text-sm font-medium">Top up eWallet</p>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -531,32 +980,18 @@ export function ClientDashboard({
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                     placeholder="Top-up amount"
                   />
-                  <button
-                    type="button"
-                    disabled={!data.client || topUpAmount <= 0}
-                    onClick={() => {
+                  <Link
+                    to="/client/payments/top-up"
+                    aria-disabled={!data.client || topUpAmount <= 0}
+                    onClick={(event) => {
                       if (!data.client || topUpAmount <= 0) {
-                        return;
+                        event.preventDefault();
                       }
-                      void topUpClientWallet({
-                        clientId: data.client.id,
-                        amount: topUpAmount,
-                        method: 'card',
-                      })
-                        .then(async () => {
-                          setTopUpAmount(0);
-                          await Promise.all([
-                            queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet', data.client?.id ?? ''] }),
-                            queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet-transactions', data.client?.id ?? ''] }),
-                          ]);
-                          toast.success('eWallet top-up completed');
-                        })
-                        .catch((error) => toast.error(error instanceof Error ? error.message : 'Top-up failed'));
                     }}
-                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white aria-disabled:pointer-events-none aria-disabled:opacity-50"
                   >
-                    Top Up
-                  </button>
+                    Top Up on Dedicated Page
+                  </Link>
                 </div>
               </div>
 
@@ -573,26 +1008,18 @@ export function ClientDashboard({
                       <option key={month} value={month}>{month}</option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    disabled={!data.client || !selectedMonth || unpaidMonths.length === 0}
-                    onClick={() => {
-                      if (!data.client || !selectedMonth) {
-                        return;
+                  <Link
+                    to="/client/payments/pay"
+                    aria-disabled={!data.client || !selectedMonth || unpaidMonths.length === 0}
+                    onClick={(event) => {
+                      if (!data.client || !selectedMonth || unpaidMonths.length === 0) {
+                        event.preventDefault();
                       }
-                      void recordClientPayment({
-                        clientId: data.client.id,
-                        month: selectedMonth,
-                        amount: data.client.monthlyPremium,
-                        paymentMethod: 'self-service',
-                      })
-                        .then(() => toast.success(`Payment captured for ${selectedMonth}`))
-                        .catch((error) => toast.error(error instanceof Error ? error.message : 'Payment failed'));
                     }}
-                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
                   >
-                    Pay Month
-                  </button>
+                    Pay on Dedicated Page
+                  </Link>
                 </div>
               </div>
 
@@ -663,6 +1090,14 @@ export function ClientDashboard({
 
           {activeMenu === 'documents' ? (
             <Card title="Documents to be uploaded onto the system">
+              <div className="mb-3 flex flex-wrap gap-2 text-sm">
+                <Link
+                  to="/client/documents/upload"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Open upload page
+                </Link>
+              </div>
               <div className="grid gap-2 md:grid-cols-3">
                 <input
                   value={uploadName}
@@ -685,31 +1120,18 @@ export function ClientDashboard({
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                 />
               </div>
-              <button
-                type="button"
-                disabled={!data.client || !uploadName || !uploadFile}
-                onClick={() => {
-                  if (!data.client || !uploadFile) {
-                    return;
+              <Link
+                to="/client/documents/upload"
+                aria-disabled={!data.client || !uploadName || !uploadFile}
+                onClick={(event) => {
+                  if (!data.client || !uploadName || !uploadFile) {
+                    event.preventDefault();
                   }
-                  void uploadClientDocument({
-                    clientId: data.client.id,
-                    name: uploadName,
-                    type: uploadType,
-                    fileName: uploadFile.name,
-                    fileSize: uploadFile.size,
-                  })
-                    .then(() => {
-                      toast.success('Document uploaded');
-                      setUploadName('');
-                      setUploadFile(null);
-                    })
-                    .catch((error) => toast.error(error instanceof Error ? error.message : 'Upload failed'));
                 }}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
               >
-                <Upload className="h-4 w-4" /> Upload Document
-              </button>
+                <Upload className="h-4 w-4" /> Upload Document on Dedicated Page
+              </Link>
 
               <div className="mt-3">
                 <Table
@@ -748,6 +1170,8 @@ export function ClientDashboard({
               />
             </Card>
           ) : null}
+            </>
+          )}
         </section>
       </div>
     </div>
