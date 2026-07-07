@@ -134,7 +134,16 @@ export function useFirebaseSession(): AuthState {
           password === defaultClientCredentials.password;
 
         try {
-          await signInWithEmailAndPassword(auth, email, password);
+          const credential = await signInWithEmailAndPassword(auth, email, password);
+
+          if (isDemoCredentials) {
+            await upsertProfile(
+              credential.user.uid,
+              defaultClientCredentials.fullName,
+              defaultClientCredentials.email,
+              defaultClientCredentials.role,
+            );
+          }
         } catch (error) {
           const errorCode = getErrorCode(error);
 
