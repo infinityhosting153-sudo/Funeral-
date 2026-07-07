@@ -239,6 +239,7 @@ export function ClientDashboard({
                   <Item label="ID Number" value={data.client.idNumber} />
                   <Item label="Phone" value={data.client.phoneNumber} />
                   <Item label="Membership Number" value={data.client.membershipNumber} />
+                  <Item label="Policy Number" value={data.client.policyNumber || 'Generating...'} />
                   <Item label="Status" value={data.client.status} />
                 </div>
               ) : (
@@ -356,11 +357,11 @@ export function ClientDashboard({
                       address: beneficiaryAddress,
                       dateOfBirth: beneficiaryDateOfBirth,
                     })
-                      .then(async (beneficiaryId) => {
+                      .then(async (created) => {
                         for (const file of beneficiaryDocs) {
                           await uploadClientDocument({
                             clientId,
-                            beneficiaryId,
+                            beneficiaryId: created.id,
                             name: `${beneficiaryName} - ${file.name}`,
                             type: 'beneficiary-document',
                             fileName: file.name,
@@ -383,7 +384,7 @@ export function ClientDashboard({
                         setBeneficiaryDateOfBirth('');
                         setBeneficiaryDocs([]);
 
-                        toast.success('Beneficiary and required documents added');
+                        toast.success(`Beneficiary added with member number ${created.membershipNumber}`);
                       })
                       .catch((error) => toast.error(error instanceof Error ? error.message : 'Could not add beneficiary'));
                   }}
@@ -394,10 +395,11 @@ export function ClientDashboard({
               </div>
 
               <Table
-                headers={['Date Registered', 'Name', 'ID Number', 'Physical Address', 'Covered For']}
+                headers={['Date Registered', 'Name', 'Member #', 'ID Number', 'Physical Address', 'Covered For']}
                 rows={data.beneficiaries.map((b) => [
                   new Date(b.dateAdded).toLocaleDateString(),
                   b.fullName,
+                  b.membershipNumber || 'Generating...',
                   b.idNumber,
                   b.address || 'N/A',
                   toCurrency(data.selectedPlan?.payoutAmount ?? 0),

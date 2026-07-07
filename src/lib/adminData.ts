@@ -34,6 +34,7 @@ export interface ClientDoc {
   id: string;
   customerNumber: string;
   membershipNumber: string;
+  policyNumber?: string;
   fullName: string;
   idNumber: string;
   phoneNumber: string;
@@ -50,6 +51,8 @@ export interface ClientDoc {
 export interface BeneficiaryDoc {
   id: string;
   clientId: string;
+  policyNumber?: string;
+  membershipNumber?: string;
   fullName: string;
   relationship: string;
   gender: string;

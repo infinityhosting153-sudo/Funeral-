@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
@@ -55,6 +56,17 @@ function parseDate(value: unknown) {
   return new Date().toISOString();
 }
 
+function generatePolicyNumber() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const token = Math.floor(Math.random() * 900000 + 100000);
+  return `POL-${year}-${token}`;
+}
+
+function generateMembershipNumber(policyNumber: string, index: number) {
+  return `${policyNumber}-MEM-${String(index).padStart(3, '0')}`;
+}
+
 async function fetchByField<T>(collectionName: string, field: string, value: string) {
   const db = getFirebaseDb();
   if (!db) {
@@ -86,10 +98,28 @@ export function useClientDataset(email: string) {
           return null;
         }
         const data = docSnap.data();
+        const policyNumber =
+          typeof data.policyNumber === 'string' && data.policyNumber.trim()
+            ? data.policyNumber
+            : generatePolicyNumber();
+
+        if (typeof data.policyNumber !== 'string' || !data.policyNumber.trim()) {
+          await setDoc(
+            doc(db, 'clients', docSnap.id),
+            {
+              policyNumber,
+              updatedAt: new Date().toISOString(),
+              updatedAtServer: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+
         return {
           id: docSnap.id,
           customerNumber: String(data.customerNumber ?? ''),
           membershipNumber: String(data.membershipNumber ?? ''),
+          policyNumber,
           fullName: String(data.fullName ?? ''),
           idNumber: String(data.idNumber ?? ''),
           phoneNumber: String(data.phoneNumber ?? ''),
@@ -113,8 +143,45 @@ export function useClientDataset(email: string) {
   const clientId = clientQuery.data?.id ?? '';
 
   const beneficiariesQuery = useQuery<BeneficiaryDoc[]>({
-    queryKey: ['client-dashboard-beneficiaries', clientId],
-    queryFn: () => fetchByField<BeneficiaryDoc>('beneficiaries', 'clientId', clientId),
+    queryKey: ['client-dashboard-beneficiaries', clientId, clientQuery.data?.policyNumber ?? ''],
+    queryFn: async () => {
+      const db = getFirebaseDb();
+      if (!db || !clientId) {
+        return [];
+      }
+
+      const policyNumber = clientQuery.data?.policyNumber ?? generatePolicyNumber();
+      const rows = await fetchByField<BeneficiaryDoc>('beneficiaries', 'clientId', clientId);
+
+      const next = rows.map((row, index) => {
+        const existingMembership =
+          typeof row.membershipNumber === 'string' && row.membershipNumber.trim()
+            ? row.membershipNumber
+            : generateMembershipNumber(policyNumber, index + 1);
+
+        return {
+          ...row,
+          policyNumber,
+          membershipNumber: existingMembership,
+        };
+      });
+
+      await Promise.all(
+        next.map((row) =>
+          setDoc(
+            doc(db, 'beneficiaries', row.id),
+            {
+              policyNumber: row.policyNumber,
+              membershipNumber: row.membershipNumber,
+              updatedAtServer: serverTimestamp(),
+            },
+            { merge: true },
+          ),
+        ),
+      );
+
+      return next;
+    },
     enabled: Boolean(clientId),
     staleTime: 30_000,
   });
@@ -334,8 +401,32 @@ export async function addClientBeneficiary(input: {
     throw new Error('Firebase is not configured.');
   }
 
+  const clientSnap = await getDoc(doc(db, 'clients', input.clientId));
+  const clientData = clientSnap.exists() ? clientSnap.data() : {};
+  const policyNumber =
+    typeof clientData.policyNumber === 'string' && clientData.policyNumber.trim()
+      ? clientData.policyNumber
+      : generatePolicyNumber();
+
+  if (typeof clientData.policyNumber !== 'string' || !clientData.policyNumber.trim()) {
+    await setDoc(
+      doc(db, 'clients', input.clientId),
+      {
+        policyNumber,
+        updatedAt: new Date().toISOString(),
+        updatedAtServer: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+
+  const existing = await getDocs(query(collection(db, 'beneficiaries'), where('clientId', '==', input.clientId)));
+  const membershipNumber = generateMembershipNumber(policyNumber, existing.docs.length + 1);
+
   const reference = await addDoc(collection(db, 'beneficiaries'), {
     clientId: input.clientId,
+    policyNumber,
+    membershipNumber,
     fullName: input.fullName,
     relationship: input.relationship,
     gender: input.gender,
@@ -350,7 +441,11 @@ export async function addClientBeneficiary(input: {
     updatedAtServer: serverTimestamp(),
   });
 
-  return reference.id;
+  return {
+    id: reference.id,
+    policyNumber,
+    membershipNumber,
+  };
 }
 
 export async function deleteClientDocument(documentId: string) {
