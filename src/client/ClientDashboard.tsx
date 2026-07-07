@@ -15,10 +15,11 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
 import { cn } from '../lib/cn';
-import { recordClientPayment, uploadClientDocument, useClientDataset } from '../lib/clientData';
+import { recordClientPayment, topUpClientWallet, uploadClientDocument, useClientDataset } from '../lib/clientData';
 
 type ClientMenuKey =
   | 'dashboard'
@@ -95,8 +96,10 @@ export function ClientDashboard({
   initialMenu?: ClientMenuKey;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeMenu, setActiveMenu] = useState<ClientMenuKey>(initialMenu);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [topUpAmount, setTopUpAmount] = useState(0);
   const [uploadName, setUploadName] = useState('');
   const [uploadType, setUploadType] = useState('identity');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -192,7 +195,7 @@ export function ClientDashboard({
               <Stat title="Beneficiaries" value={String(data.beneficiaries.length)} />
               <Stat title="Claims" value={String(data.claims.length)} />
               <Stat title="Paid Months" value={String(paidMonths.size)} />
-              <Stat title="Outstanding Months" value={String(unpaidMonths.length)} />
+              <Stat title="eWallet Balance" value={toCurrency(data.walletBalance)} />
             </div>
           ) : null}
 
@@ -266,6 +269,48 @@ export function ClientDashboard({
               <div className="grid gap-2 text-sm md:grid-cols-2">
                 <Item label="Months paid" value={String(paidMonths.size)} />
                 <Item label="Months unpaid" value={String(unpaidMonths.length)} />
+                <Item label="eWallet Balance" value={toCurrency(data.walletBalance)} />
+              </div>
+
+              <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <p className="text-sm font-medium">Top up eWallet</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={50}
+                    value={topUpAmount}
+                    onChange={(event) => setTopUpAmount(Number(event.target.value || 0))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    placeholder="Top-up amount"
+                  />
+                  <button
+                    type="button"
+                    disabled={!data.client || topUpAmount <= 0}
+                    onClick={() => {
+                      if (!data.client || topUpAmount <= 0) {
+                        return;
+                      }
+                      void topUpClientWallet({
+                        clientId: data.client.id,
+                        amount: topUpAmount,
+                        method: 'card',
+                      })
+                        .then(async () => {
+                          setTopUpAmount(0);
+                          await Promise.all([
+                            queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet', data.client?.id ?? ''] }),
+                            queryClient.invalidateQueries({ queryKey: ['client-dashboard-wallet-transactions', data.client?.id ?? ''] }),
+                          ]);
+                          toast.success('eWallet top-up completed');
+                        })
+                        .catch((error) => toast.error(error instanceof Error ? error.message : 'Top-up failed'));
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    Top Up
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
@@ -334,6 +379,19 @@ export function ClientDashboard({
                       ]);
                     },
                   }}
+                />
+              </div>
+
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-medium">eWallet transactions</p>
+                <Table
+                  headers={['Date', 'Type', 'Method', 'Amount']}
+                  rows={data.walletTransactions.map((tx) => [
+                    new Date(tx.createdAt).toLocaleString(),
+                    tx.type,
+                    tx.method,
+                    toCurrency(tx.amount),
+                  ])}
                 />
               </div>
             </Card>
