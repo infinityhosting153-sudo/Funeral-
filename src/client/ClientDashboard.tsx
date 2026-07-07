@@ -21,6 +21,7 @@ import type { AuthState } from '../lib/firebaseAuth';
 import { cn } from '../lib/cn';
 import {
   addClientBeneficiary,
+  deleteClientDocument,
   recordClientPayment,
   topUpClientWallet,
   uploadClientDocument,
@@ -115,6 +116,7 @@ export function ClientDashboard({
   const [beneficiaryAddress, setBeneficiaryAddress] = useState('');
   const [beneficiaryDateOfBirth, setBeneficiaryDateOfBirth] = useState('');
   const [beneficiaryDocs, setBeneficiaryDocs] = useState<File[]>([]);
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState('all');
   const [uploadName, setUploadName] = useState('');
   const [uploadType, setUploadType] = useState('identity');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -150,6 +152,20 @@ export function ClientDashboard({
   }, [data.client]);
 
   const unpaidMonths = dueMonths.filter((month) => !paidMonths.has(month));
+
+  const beneficiaryDocuments = useMemo(() => {
+    return data.documents.filter((document) => {
+      if (!document.type.includes('beneficiary')) {
+        return false;
+      }
+
+      if (selectedBeneficiaryId === 'all') {
+        return true;
+      }
+
+      return document.beneficiaryId === selectedBeneficiaryId;
+    });
+  }, [data.documents, selectedBeneficiaryId]);
 
   if (session.profile?.role !== 'client' && session.profile?.role !== 'financeOfficer') {
     return (
@@ -387,6 +403,94 @@ export function ClientDashboard({
                   toCurrency(data.selectedPlan?.payoutAmount ?? 0),
                 ])}
               />
+
+              <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <p className="text-sm font-medium">Beneficiary Documents (grouped and filtered)</p>
+                <div className="mt-2">
+                  <select
+                    value={selectedBeneficiaryId}
+                    onChange={(event) => setSelectedBeneficiaryId(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  >
+                    <option value="all">All beneficiaries</option>
+                    {data.beneficiaries.map((beneficiary) => (
+                      <option key={beneficiary.id} value={beneficiary.id}>{beneficiary.fullName}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="px-2 py-1">Uploaded At</th>
+                        <th className="px-2 py-1">Beneficiary</th>
+                        <th className="px-2 py-1">Document Name</th>
+                        <th className="px-2 py-1">Type</th>
+                        <th className="px-2 py-1">Stored As</th>
+                        <th className="px-2 py-1">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {beneficiaryDocuments.length === 0 ? (
+                        <tr>
+                          <td className="px-2 py-3 text-sm text-slate-500 dark:text-slate-400" colSpan={6}>
+                            No beneficiary documents found.
+                          </td>
+                        </tr>
+                      ) : (
+                        beneficiaryDocuments.map((document) => {
+                          const beneficiary = data.beneficiaries.find((row) => row.id === document.beneficiaryId);
+                          return (
+                            <tr key={document.id} className="border-t border-slate-200 dark:border-slate-700">
+                              <td className="px-2 py-2">{new Date(document.uploadedAt).toLocaleString()}</td>
+                              <td className="px-2 py-2">{beneficiary?.fullName || 'Unknown'}</td>
+                              <td className="px-2 py-2">{document.name}</td>
+                              <td className="px-2 py-2">{document.type}</td>
+                              <td className="px-2 py-2">{document.url}</td>
+                              <td className="px-2 py-2">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700"
+                                    onClick={() => {
+                                      if (document.url.startsWith('uploaded://')) {
+                                        toast.info('Preview is unavailable for placeholder uploaded:// files.');
+                                        return;
+                                      }
+                                      window.open(document.url, '_blank', 'noopener,noreferrer');
+                                    }}
+                                  >
+                                    View
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-lg border border-rose-300 px-2 py-1 text-xs text-rose-700 dark:border-rose-700 dark:text-rose-300"
+                                    onClick={() => {
+                                      const clientId = data.client?.id;
+                                      if (!clientId) {
+                                        return;
+                                      }
+                                      void deleteClientDocument(document.id)
+                                        .then(async () => {
+                                          await queryClient.invalidateQueries({ queryKey: ['client-dashboard-documents', clientId] });
+                                          toast.success('Document deleted');
+                                        })
+                                        .catch((error) => toast.error(error instanceof Error ? error.message : 'Delete failed'));
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </Card>
           ) : null}
 

@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   increment,
@@ -350,4 +351,13 @@ export async function addClientBeneficiary(input: {
   });
 
   return reference.id;
+}
+
+export async function deleteClientDocument(documentId: string) {
+  const db = getFirebaseDb();
+  if (!db) {
+    throw new Error('Firebase is not configured.');
+  }
+
+  await deleteDoc(doc(db, 'documents', documentId));
 }

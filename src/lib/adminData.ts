@@ -109,10 +109,12 @@ export interface NotificationDoc {
 export interface DocumentDoc {
   id: string;
   clientId?: string;
+  beneficiaryId?: string;
   name: string;
   type: string;
   url: string;
   uploadedAt: string;
+  fileSize?: number;
 }
 
 export interface AuditLogDoc {
