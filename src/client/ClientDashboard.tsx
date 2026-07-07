@@ -35,7 +35,6 @@ type ClientMenuKey =
   | 'beneficiaries'
   | 'claims'
   | 'payments'
-  | 'outstanding'
   | 'communication'
   | 'documents'
   | 'settings'
@@ -48,7 +47,6 @@ const clientMenuPathMap: Record<ClientMenuKey, string> = {
   beneficiaries: '/client/beneficiaries',
   claims: '/client/claims',
   payments: '/client/payments',
-  outstanding: '/client/outstanding',
   communication: '/client/communication',
   documents: '/client/documents',
   settings: '/client/settings',
@@ -62,7 +60,6 @@ const menu: Array<{ key: ClientMenuKey; label: string; icon: typeof LayoutDashbo
   { key: 'beneficiaries', label: 'Beneficiaries', icon: UserRound },
   { key: 'claims', label: 'Claims', icon: Shield },
   { key: 'payments', label: 'Payments', icon: CreditCard },
-  { key: 'outstanding', label: 'Outstanding Payments', icon: CreditCard },
   { key: 'communication', label: 'Communication', icon: MessageSquare },
   { key: 'documents', label: 'Documents', icon: FolderOpen },
   { key: 'settings', label: 'Settings', icon: Settings },
@@ -516,7 +513,7 @@ export function ClientDashboard({
 
           {activeMenu === 'payments' ? (
             <Card title="Payments">
-              <div className="grid gap-2 text-sm md:grid-cols-2">
+              <div className="grid gap-3 text-sm md:grid-cols-3">
                 <Item label="Months paid" value={String(paidMonths.size)} />
                 <Item label="Months unpaid" value={String(unpaidMonths.length)} />
                 <Item label="eWallet Balance" value={toCurrency(data.walletBalance)} />
@@ -644,15 +641,6 @@ export function ClientDashboard({
                   ])}
                 />
               </div>
-            </Card>
-          ) : null}
-
-          {activeMenu === 'outstanding' ? (
-            <Card title="Outstanding Payments">
-              <Table
-                headers={['Month', 'Status', 'Amount Due']}
-                rows={unpaidMonths.map((month) => [month, 'unpaid', toCurrency(data.client?.monthlyPremium ?? 0)])}
-              />
             </Card>
           ) : null}
 

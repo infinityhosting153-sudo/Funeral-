@@ -31,7 +31,6 @@ const clientSectionRoutes = [
   { path: '/client/beneficiaries', menu: 'beneficiaries' },
   { path: '/client/claims', menu: 'claims' },
   { path: '/client/payments', menu: 'payments' },
-  { path: '/client/outstanding', menu: 'outstanding' },
   { path: '/client/communication', menu: 'communication' },
   { path: '/client/documents', menu: 'documents' },
   { path: '/client/settings', menu: 'settings' },
