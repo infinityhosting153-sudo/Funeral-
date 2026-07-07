@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { isFirebaseConfigured } from './lib/env';
-import { type Role } from './lib/domain';
+import { defaultAdminCredentials, defaultClientCredentials, type Role } from './lib/domain';
 import { useFirebaseSession, type AuthState } from './lib/firebaseAuth';
 
 const preloadAdminDashboard = () => import('./admin/AdminDashboard');
@@ -116,6 +116,19 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  async function signInWithDemoCredentials(credentials: { email: string; password: string }) {
+    setError('');
+    setBusy(true);
+
+    try {
+      await session.signIn(credentials.email, credentials.password);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Authentication failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (session.profile) {
       navigate(dashboardPathForRole(session.profile.role), { replace: true });
@@ -153,7 +166,7 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
       <h1 className="mt-2 text-2xl font-semibold">{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
       <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
         {mode === 'login'
-          ? 'Use your administrator account to access the dashboard.'
+          ? 'Use your client or administrator account to access the portal.'
           : 'Register a Firebase user. Assign administrator role in the profile document.'}
       </p>
 
@@ -192,6 +205,27 @@ function AuthPage({ mode, session }: { mode: 'login' | 'register'; session: Auth
           {busy ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
       </form>
+
+      {mode === 'login' ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => void signInWithDemoCredentials(defaultClientCredentials)}
+            disabled={busy || !session.configured}
+            className="rounded-lg border border-emerald-300 px-4 py-2 text-sm text-emerald-700 disabled:opacity-50 dark:border-emerald-700 dark:text-emerald-300"
+          >
+            Sign in as client
+          </button>
+          <button
+            type="button"
+            onClick={() => void signInWithDemoCredentials(defaultAdminCredentials)}
+            disabled={busy || !session.configured}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+          >
+            Sign in as admin
+          </button>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex items-center justify-between text-sm">
         <Link to="/" className="text-slate-500 hover:underline dark:text-slate-400">
@@ -267,11 +301,6 @@ function HomePage({ session }: { session: AuthState }) {
 function App() {
   const location = useLocation();
   const session = useFirebaseSession();
-
-  useEffect(() => {
-    void preloadAdminDashboard();
-    void preloadClientDashboard();
-  }, []);
 
   return (
     <Routes>
