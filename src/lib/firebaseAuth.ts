@@ -84,7 +84,7 @@ export function useFirebaseSession(): AuthState {
     // Defensive timeout so UI never gets stuck in loading if network/auth callbacks stall.
     const loadingTimeout = window.setTimeout(() => {
       setLoading(false);
-    }, 10000);
+    }, 2500);
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);

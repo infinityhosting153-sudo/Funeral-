@@ -4,7 +4,8 @@ import { isFirebaseConfigured } from './lib/env';
 import { type Role } from './lib/domain';
 import { useFirebaseSession, type AuthState } from './lib/firebaseAuth';
 
-const AdminDashboard = lazy(() => import('./admin/AdminDashboard').then((module) => ({ default: module.AdminDashboard })));
+const preloadAdminDashboard = () => import('./admin/AdminDashboard');
+const AdminDashboard = lazy(() => preloadAdminDashboard().then((module) => ({ default: module.AdminDashboard })));
 
 const adminSectionRoutes = [
   { path: '/admin', menu: 'dashboard' },
@@ -41,7 +42,11 @@ function ProtectedRoute({ session, children }: { session: AuthState; children: R
   }
 
   if (session.loading) {
-    return <div className="p-8 text-sm text-slate-500">Loading session...</div>;
+    return (
+      <div className="p-8">
+        <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+      </div>
+    );
   }
 
   if (!session.user || !session.profile) {
@@ -217,6 +222,10 @@ function App() {
   const location = useLocation();
   const session = useFirebaseSession();
 
+  useEffect(() => {
+    void preloadAdminDashboard();
+  }, []);
+
   return (
     <Routes>
       <Route path="/" element={<HomePage session={session} />} />
@@ -228,7 +237,13 @@ function App() {
           path={route.path}
           element={
             <ProtectedRoute session={session}>
-              <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading dashboard...</div>}>
+              <Suspense
+                fallback={
+                  <div className="p-8">
+                    <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+                  </div>
+                }
+              >
                 <AdminDashboard session={session} initialMenu={route.menu} />
               </Suspense>
             </ProtectedRoute>
