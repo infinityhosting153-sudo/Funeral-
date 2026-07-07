@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   CreditCard,
@@ -15,6 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
 import { cn } from '../lib/cn';
 import { recordClientPayment, uploadClientDocument, useClientDataset } from '../lib/clientData';
@@ -31,6 +32,20 @@ type ClientMenuKey =
   | 'documents'
   | 'settings'
   | 'auditLogs';
+
+const clientMenuPathMap: Record<ClientMenuKey, string> = {
+  dashboard: '/client',
+  clients: '/client/clients',
+  plans: '/client/plans',
+  beneficiaries: '/client/beneficiaries',
+  claims: '/client/claims',
+  payments: '/client/payments',
+  outstanding: '/client/outstanding',
+  communication: '/client/communication',
+  documents: '/client/documents',
+  settings: '/client/settings',
+  auditLogs: '/client/audit-logs',
+};
 
 const menu: Array<{ key: ClientMenuKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -72,12 +87,23 @@ function buildInvoiceDownload(fileName: string, lines: string[]) {
   URL.revokeObjectURL(url);
 }
 
-export function ClientDashboard({ session }: { session: AuthState }) {
-  const [activeMenu, setActiveMenu] = useState<ClientMenuKey>('dashboard');
+export function ClientDashboard({
+  session,
+  initialMenu = 'dashboard',
+}: {
+  session: AuthState;
+  initialMenu?: ClientMenuKey;
+}) {
+  const navigate = useNavigate();
+  const [activeMenu, setActiveMenu] = useState<ClientMenuKey>(initialMenu);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [uploadName, setUploadName] = useState('');
   const [uploadType, setUploadType] = useState('identity');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    setActiveMenu(initialMenu);
+  }, [initialMenu]);
 
   const data = useClientDataset(session.profile?.email ?? '');
 
@@ -130,7 +156,10 @@ export function ClientDashboard({ session }: { session: AuthState }) {
                 <button
                   type="button"
                   key={item.key}
-                  onClick={() => setActiveMenu(item.key)}
+                  onClick={() => {
+                    setActiveMenu(item.key);
+                    navigate(clientMenuPathMap[item.key]);
+                  }}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition',
                     activeMenu === item.key

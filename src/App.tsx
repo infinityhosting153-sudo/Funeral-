@@ -24,6 +24,20 @@ const adminSectionRoutes = [
   { path: '/admin/audit-logs', menu: 'auditLogs' },
 ] as const;
 
+const clientSectionRoutes = [
+  { path: '/client', menu: 'dashboard' },
+  { path: '/client/clients', menu: 'clients' },
+  { path: '/client/plans', menu: 'plans' },
+  { path: '/client/beneficiaries', menu: 'beneficiaries' },
+  { path: '/client/claims', menu: 'claims' },
+  { path: '/client/payments', menu: 'payments' },
+  { path: '/client/outstanding', menu: 'outstanding' },
+  { path: '/client/communication', menu: 'communication' },
+  { path: '/client/documents', menu: 'documents' },
+  { path: '/client/settings', menu: 'settings' },
+  { path: '/client/audit-logs', menu: 'auditLogs' },
+] as const;
+
 function dashboardPathForRole(role: Role) {
   if (role === 'administrator') {
     return '/admin';
@@ -281,22 +295,25 @@ function App() {
         />
       ))}
       <Route path="/finance" element={<Navigate to="/admin" replace />} />
-      <Route
-        path="/client"
-        element={
-          <ProtectedClientRoute session={session}>
-            <Suspense
-              fallback={
-                <div className="p-8">
-                  <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
-                </div>
-              }
-            >
-              <ClientDashboard session={session} />
-            </Suspense>
-          </ProtectedClientRoute>
-        }
-      />
+      {clientSectionRoutes.map((route) => (
+        <Route
+          key={route.path}
+          path={route.path}
+          element={
+            <ProtectedClientRoute session={session}>
+              <Suspense
+                fallback={
+                  <div className="p-8">
+                    <div className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+                  </div>
+                }
+              >
+                <ClientDashboard session={session} initialMenu={route.menu} />
+              </Suspense>
+            </ProtectedClientRoute>
+          }
+        />
+      ))}
       <Route path="*" element={<Navigate to="/" replace state={{ from: location.pathname }} />} />
     </Routes>
   );
