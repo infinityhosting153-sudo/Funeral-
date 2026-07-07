@@ -226,7 +226,7 @@ function buildClientQueryConstraints(filters: ClientFilters, pageSize: number): 
   return constraints;
 }
 
-export function useFirestoreCollection<T extends CollectionRow>(collectionName: string) {
+export function useFirestoreCollection<T extends CollectionRow>(collectionName: string, enabled = true) {
   const db = getFirebaseDb();
 
   return useQuery<T[]>({
@@ -240,11 +240,11 @@ export function useFirestoreCollection<T extends CollectionRow>(collectionName: 
       return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as T));
     },
     staleTime: 60_000,
-    enabled: Boolean(db),
+    enabled: Boolean(db) && enabled,
   });
 }
 
-export function usePaginatedClients(filters: ClientFilters, pageSize = 12) {
+export function usePaginatedClients(filters: ClientFilters, pageSize = 12, enabled = true) {
   const db = getFirebaseDb();
 
   const queryResult = useInfiniteQuery<PaginatedClientsPage>({
@@ -272,7 +272,7 @@ export function usePaginatedClients(filters: ClientFilters, pageSize = 12) {
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled: Boolean(db),
+    enabled: Boolean(db) && enabled,
     staleTime: 30_000,
   });
 
@@ -286,12 +286,12 @@ export function usePaginatedClients(filters: ClientFilters, pageSize = 12) {
   };
 }
 
-export function useNotificationsRealtime(limitCount = 8) {
+export function useNotificationsRealtime(limitCount = 8, enabled = true) {
   const db = getFirebaseDb();
   const [rows, setRows] = useState<NotificationDoc[]>([]);
 
   useEffect(() => {
-    if (!db) {
+    if (!db || !enabled) {
       setRows([]);
       return;
     }
@@ -305,21 +305,42 @@ export function useNotificationsRealtime(limitCount = 8) {
     });
 
     return unsubscribe;
-  }, [db, limitCount]);
+  }, [db, enabled, limitCount]);
 
   return rows;
 }
 
-export function useAdminDataset() {
-  const clientsQuery = useFirestoreCollection<ClientDoc>('clients');
-  const plansQuery = useFirestoreCollection<PlanDoc>('plans');
-  const beneficiariesQuery = useFirestoreCollection<BeneficiaryDoc>('beneficiaries');
-  const claimsQuery = useFirestoreCollection<ClaimDoc>('claims');
-  const paymentsQuery = useFirestoreCollection<PaymentDoc>('payments');
-  const communicationsQuery = useFirestoreCollection<CommunicationDoc>('communications');
-  const documentsQuery = useFirestoreCollection<DocumentDoc>('documents');
-  const auditLogsQuery = useFirestoreCollection<AuditLogDoc>('auditLogs');
-  const notifications = useNotificationsRealtime();
+export function useAdminDataset(activeMenu = 'dashboard') {
+  const loadDashboard = activeMenu === 'dashboard';
+  const loadClientHeavy =
+    loadDashboard ||
+    activeMenu === 'clients' ||
+    activeMenu === 'clientProfile' ||
+    activeMenu === 'outstanding' ||
+    activeMenu === 'reports' ||
+    activeMenu === 'plans' ||
+    activeMenu === 'beneficiaries' ||
+    activeMenu === 'claims' ||
+    activeMenu === 'payments';
+
+  const clientsQuery = useFirestoreCollection<ClientDoc>('clients', loadClientHeavy);
+  const plansQuery = useFirestoreCollection<PlanDoc>('plans', loadDashboard || activeMenu === 'plans');
+  const beneficiariesQuery = useFirestoreCollection<BeneficiaryDoc>(
+    'beneficiaries',
+    loadDashboard || activeMenu === 'beneficiaries' || activeMenu === 'clientProfile' || activeMenu === 'claims',
+  );
+  const claimsQuery = useFirestoreCollection<ClaimDoc>(
+    'claims',
+    loadDashboard || activeMenu === 'claims' || activeMenu === 'clientProfile' || activeMenu === 'reports',
+  );
+  const paymentsQuery = useFirestoreCollection<PaymentDoc>(
+    'payments',
+    loadDashboard || activeMenu === 'payments' || activeMenu === 'outstanding' || activeMenu === 'clientProfile' || activeMenu === 'reports',
+  );
+  const communicationsQuery = useFirestoreCollection<CommunicationDoc>('communications', activeMenu === 'communication');
+  const documentsQuery = useFirestoreCollection<DocumentDoc>('documents', activeMenu === 'documents');
+  const auditLogsQuery = useFirestoreCollection<AuditLogDoc>('auditLogs', activeMenu === 'auditLogs');
+  const notifications = useNotificationsRealtime(8, loadDashboard);
 
   const loading =
     clientsQuery.isLoading ||

@@ -41,8 +41,6 @@ import {
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import jsPDF from 'jspdf';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import type { AuthState } from '../lib/firebaseAuth';
@@ -201,24 +199,26 @@ function exportCsv(fileName: string, rows: Record<string, unknown>[]) {
   URL.revokeObjectURL(url);
 }
 
-function exportExcel(fileName: string, rows: Record<string, unknown>[]) {
+async function exportExcel(fileName: string, rows: Record<string, unknown>[]) {
   if (rows.length === 0) {
     toast.info('No data available for Excel export.');
     return;
   }
 
+  const XLSX = await import('xlsx');
   const sheet = XLSX.utils.json_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Report');
   XLSX.writeFile(workbook, `${fileName}.xlsx`);
 }
 
-function exportPdf(fileName: string, title: string, rows: Record<string, unknown>[]) {
+async function exportPdf(fileName: string, title: string, rows: Record<string, unknown>[]) {
   if (rows.length === 0) {
     toast.info('No data available for PDF export.');
     return;
   }
 
+  const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFontSize(14);
   doc.text(title, 40, 40);
@@ -295,8 +295,8 @@ export function AdminDashboard({ session, initialMenu = 'dashboard' }: { session
     outstandingOnly: false,
   });
 
-  const data = useAdminDataset();
-  const paginatedClients = usePaginatedClients(clientFilters, 12);
+  const data = useAdminDataset(activeMenu);
+  const paginatedClients = usePaginatedClients(clientFilters, 12, activeMenu === 'clients');
 
   useEffect(() => {
     setActiveMenu(initialMenu);
@@ -1734,14 +1734,18 @@ function ReportCard({ title, rows }: { title: string; rows: Record<string, unkno
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => exportPdf(fileName, title, rows)}
+          onClick={() => {
+            void exportPdf(fileName, title, rows);
+          }}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs dark:border-slate-700"
         >
           PDF
         </button>
         <button
           type="button"
-          onClick={() => exportExcel(fileName, rows)}
+          onClick={() => {
+            void exportExcel(fileName, rows);
+          }}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs dark:border-slate-700"
         >
           Excel
